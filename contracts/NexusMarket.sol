@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract UplandV3 is 
+contract NexusMarket is 
     ERC721URIStorage,
     ERC2981,
     EIP712,
@@ -18,13 +18,9 @@ contract UplandV3 is
 {
     using ECDSA for bytes32;
 
-    // =========================
-    // STORAGE (GAS OPTIMIZED)
-    // =========================
-
     uint256 private _tokenIds;
 
-    uint96 public platformFee; // 2% = 200 (basis points)
+    uint96 public platformFee; // basis points (200 = 2%)
     address public feeRecipient;
 
     struct Listing {
@@ -34,27 +30,18 @@ contract UplandV3 is
     }
 
     mapping(uint256 => Listing) public listings;
-
-    // Escrow balances (Pull payments)
     mapping(address => uint256) public pendingWithdrawals;
-
-    // Commit-Reveal anti front-run
     mapping(bytes32 => bool) public committedOrders;
-
-    // =========================
-    // EIP712
-    // =========================
+    mapping(address => uint256) public nonces;
 
     bytes32 private constant ORDER_TYPEHASH =
         keccak256("Order(uint256 tokenId,uint256 price,uint256 nonce,uint256 expiry)");
 
-    mapping(address => uint256) public nonces;
-
     constructor()
-        ERC721("UplandV3", "UP3")
-        EIP712("UplandV3", "1")
+        ERC721("NexusMarket", "NEX")
+        EIP712("NexusMarket", "1")
     {
-        platformFee = 200; // 2%
+        platformFee = 200;
         feeRecipient = msg.sender;
     }
 
@@ -65,14 +52,13 @@ contract UplandV3 is
     function mint(
         address to,
         string memory uri,
-        uint96 royaltyFee // basis points
+        uint96 royaltyFee
     ) external onlyOwner returns (uint256) {
         _tokenIds++;
         uint256 id = _tokenIds;
 
         _safeMint(to, id);
         _setTokenURI(id, uri);
-
         _setTokenRoyalty(id, to, royaltyFee);
 
         return id;
@@ -87,7 +73,7 @@ contract UplandV3 is
     }
 
     // =========================
-    // LIST (ONCHAIN SIMPLE)
+    // LIST
     // =========================
 
     function list(
@@ -105,7 +91,7 @@ contract UplandV3 is
     }
 
     // =========================
-    // BUY WITH SIGNED ORDER
+    // BUY WITH SIGNATURE
     // =========================
 
     function buyWithSig(
@@ -120,7 +106,14 @@ contract UplandV3 is
 
         address seller = ownerOf(tokenId);
 
-        // EIP712 hash
+        // Commit-reveal check
+        bytes32 commitment = keccak256(
+            abi.encode(msg.sender, tokenId, price, nonce)
+        );
+        require(committedOrders[commitment], "Order not committed");
+        delete committedOrders[commitment];
+
+        // EIP712 verification
         bytes32 structHash = keccak256(
             abi.encode(
                 ORDER_TYPEHASH,
@@ -137,11 +130,20 @@ contract UplandV3 is
         require(signer == seller, "Invalid signer");
         require(nonce == nonces[seller]++, "Invalid nonce");
 
+        // Ownership re-check
+        require(ownerOf(tokenId) == seller, "Seller no longer owner");
+
         _executeSale(tokenId, seller, msg.sender, price);
+
+        // Refund extra ETH
+        if (msg.value > price) {
+            (bool ok, ) = msg.sender.call{value: msg.value - price}("");
+            require(ok, "Refund failed");
+        }
     }
 
     // =========================
-    // DIRECT BUY (LISTING)
+    // DIRECT BUY
     // =========================
 
     function buy(uint256 tokenId) external payable nonReentrant {
@@ -150,10 +152,17 @@ contract UplandV3 is
         require(l.price > 0, "Not listed");
         require(block.timestamp <= l.expiry, "Expired");
         require(msg.value >= l.price, "Low ETH");
+        require(ownerOf(tokenId) == l.seller, "Invalid seller");
 
         _executeSale(tokenId, l.seller, msg.sender, l.price);
 
         delete listings[tokenId];
+
+        // Refund extra ETH
+        if (msg.value > l.price) {
+            (bool ok, ) = msg.sender.call{value: msg.value - l.price}("");
+            require(ok, "Refund failed");
+        }
     }
 
     // =========================
@@ -168,7 +177,6 @@ contract UplandV3 is
     ) internal {
         _transfer(seller, buyer, tokenId);
 
-        // Fees
         uint256 platformCut = (amount * platformFee) / 10000;
 
         (address royaltyReceiver, uint256 royaltyAmount) =
@@ -176,7 +184,6 @@ contract UplandV3 is
 
         uint256 sellerAmount = amount - platformCut - royaltyAmount;
 
-        // Escrow (pull payments)
         pendingWithdrawals[seller] += sellerAmount;
         pendingWithdrawals[feeRecipient] += platformCut;
         pendingWithdrawals[royaltyReceiver] += royaltyAmount;
@@ -201,7 +208,7 @@ contract UplandV3 is
     // =========================
 
     function setPlatformFee(uint96 fee) external onlyOwner {
-        require(fee <= 1000, "Too high"); // max 10%
+        require(fee <= 1000, "Too high");
         platformFee = fee;
     }
 
@@ -210,7 +217,7 @@ contract UplandV3 is
     }
 
     // =========================
-    // SUPPORTS INTERFACE
+    // INTERFACE SUPPORT
     // =========================
 
     function supportsInterface(bytes4 interfaceId)
