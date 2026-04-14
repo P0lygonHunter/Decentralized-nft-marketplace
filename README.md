@@ -46,7 +46,7 @@ Commit-reveal mechanism prevents front-running attacks.
 ## Smart Contract
 
 ```solidity
-// Contract code available in /contracts/NexusV3.sol
+// Contract code available in /contracts/NexusMarket.sol
 ```
 
 ---
