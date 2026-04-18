@@ -112,7 +112,7 @@ Built with a security-first mindset, treating every user interaction as a potent
 
 ## Author
 
-​Security-focused Smart Contract Engineer specializing in adversarial analysis, exploit prevention, and resilient Web3 system design. Expert in ZK-Circuits architecture and high-performance MERN stack applications.
-​Open for High-stakes Full-stack Development & Security-First Web3 Architectures.
+​Security-focused smart contract engineer specializing in adversarial analysis, exploit prevention, and resilient Web3 system design.
 
+Focused on building secure, production-ready decentralized systems with a deep understanding of real-world attack surfaces, with additional experience in zero-knowledge systems and advanced cryptographic primitives.
 
